@@ -26,7 +26,7 @@ def embed_one(text: str):
     return r.data[0].embedding
 
 # Vercel 경로가 /api/ask 이므로, 앱 내부 경로는 "/" 로 둔다.
-@app.post("/")
+@app.post("/api/ask")
 def ask(body: Q):
     qv = embed_one(body.query)
     res = index.query(vector=qv, top_k=body.top_k, include_metadata=True)
