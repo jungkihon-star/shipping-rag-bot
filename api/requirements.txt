@@ -1,14 +1,8 @@
-{
-  "version": 2,
-  "functions": {
-    "api/**/*.py": {
-      "runtime": "vercel-python@3.11",
-      "memory": 1024,
-      "maxDuration": 60
-    }
-  },
-  "installCommand": "pip install -r requirements.txt",
-  "crons": [
-    { "path": "/api/sync", "schedule": "0 3 * * *" }
-  ]
-}
+openai==1.55.3
+httpx==0.27.2
+google-api-python-client==2.149.0
+google-auth==2.35.0
+google-auth-httplib2==0.2.0
+pinecone-client==5.0.1
+pypdf==4.3.1
+fastapi==0.115.5
