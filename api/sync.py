@@ -86,7 +86,7 @@ def embed(texts):
     r = client.embeddings.create(model="text-embedding-3-large", input=texts)
     return [d.embedding for d in r.data]
 
-@app.get("/")
+@app.get("/api/sync")
 def sync():
     drive = build("drive", "v3", credentials=_creds())
     files = list(list_files(FOLDER_ID, drive))
