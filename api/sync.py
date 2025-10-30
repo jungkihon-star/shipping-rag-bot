@@ -41,7 +41,7 @@ except Exception as e:
 
 # 옵션: 업로드할 폴더 ID를 환경 변수에서 가져옴
 # Vercel에 등록하신 'DRIVE_FOLDER_ID'를 사용하도록 변경합니다.
-DRIVE_PARENT_FOLDER_ID = os.environ.get('DRIVE_FOLDER_ID') # <--- 이 줄이 수정되었습니다.
+DRIVE_PARENT_FOLDER_ID = os.environ.get('DRIVE_FOLDER_ID') # <--- 이 줄은 이미 수정되었습니다.
 
 # ----------------------------------------------------
 
@@ -145,12 +145,12 @@ def handle_sync_request():
     )
     uploaded_files.append(pdf_result)
     
-    # c. 엑셀 파일 (Google Sheets로 변환)
+    # c. 엑셀 파일 (CSV 파일로 업로드)
     excel_content = "Column A,Column B\nData 1,Data 2\n".encode('utf-8') 
     excel_result = create_and_upload_file(
         drive_service, 
         "Vercel_Sync_Test_Spreadsheet.csv", 
-        "application/vnd.google-apps.spreadsheet", 
+        "text/csv", # <--- MIME 타입을 CSV 원본 타입으로 수정했습니다.
         excel_content,
         is_text=False
     )
