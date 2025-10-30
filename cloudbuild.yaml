@@ -1,4 +1,13 @@
+# cloudbuild.yaml (전체 코드를 다시 확인해 주세요)
 steps:
-  # ... (기존 빌드 스텝 유지)
+  # 👈 빌드에서 수행할 작업 (Docker 이미지 빌드)
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'asia-southeast1-docker.pkg.dev/$PROJECT_ID/containers/shiprag-api:latest', '.']
+
+images:
+  # 👈 빌드 후 푸시할 이미지 목록
+  - 'asia-southeast1-docker.pkg.dev/$PROJECT_ID/containers/shiprag-api:latest'
+
 options:
+  # 👈 마지막 오류를 해결한 로깅 설정
   logging: CLOUD_LOGGING_ONLY
