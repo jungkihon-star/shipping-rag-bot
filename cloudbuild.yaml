@@ -1,0 +1,11 @@
+# cloudbuild.yaml
+steps:
+  # Dockerfile을 사용하여 이미지 빌드
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'asia-southeast1-docker.pkg.dev/$PROJECT_ID/containers/shiprag-api:latest', '.']
+images:
+  # Artifact Registry에 푸시할 최종 이미지 경로
+  - 'asia-southeast1-docker.pkg.dev/$PROJECT_ID/containers/shiprag-api:latest'
+options:
+  # 오류를 해결하는 핵심 설정: 로그 버킷 경로 지정
+  logsBucket: gs://cool-attic-476610-u8-cloudbuild-logs-asia-southeast1
