@@ -75,10 +75,14 @@ def create_and_upload_file(drive_service, file_name, mime_type, content, is_text
         )
 
         # 3. Drive API를 사용하여 파일 업로드 실행
+        # supportsAllDrives=True와 enforceSingleParent=True를 추가하여 
+        # 서비스 계정의 저장소 할당량 문제를 우회하고, 공유 폴더에 강제 업로드합니다.
         file = drive_service.files().create(
             body=file_metadata,
             media_body=media,
-            fields='id, webContentLink, parents' # 업로드된 파일 ID와 링크, 부모 폴더 정보 요청
+            fields='id, webContentLink, parents', # 업로드된 파일 ID와 링크, 부모 폴더 정보 요청
+            supportsAllDrives=True,  # <--- 추가: 공유 드라이브 및 공유 폴더 지원 활성화
+            enforceSingleParent=True # <--- 추가: 지정된 부모 폴더에 강제 업로드
         ).execute()
 
         print(f"File uploaded: {file_name} (ID: {file.get('id')})")
