@@ -10,5 +10,11 @@
       }
     }
   ],
+  "routes": [
+    {
+      "src": "/api/sync/(.*)",
+      "dest": "/api/sync.py"
+    }
+  ],
   "installCommand": "pip install -r requirements.txt"
 }
