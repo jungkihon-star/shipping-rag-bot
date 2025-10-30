@@ -1,4 +1,3 @@
-# api/ping.py
 from fastapi import FastAPI
 from fastapi.responses import PlainTextResponse
 
