@@ -1,7 +1,4 @@
-# cloudbuild.yaml (수정)
 steps:
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'asia-southeast1-docker.pkg.dev/$PROJECT_ID/containers/shiprag-api:latest', '.']
-images:
-  - 'asia-southeast1-docker.pkg.dev/$PROJECT_ID/containers/shiprag-api:latest'
-# options: 섹션 전체를 삭제합니다.
+  # ... (기존 빌드 스텝 유지)
+options:
+  logging: CLOUD_LOGGING_ONLY
