@@ -1,7 +1,9 @@
 import os
 import json
 from google.oauth2 import service_account
+from fastapi import FastAPI # FastAPI 모듈도 임포트되었는지 확인
 
+app = FastAPI()
 # ----------------------------------------------------
 # 1. 환경 변수에서 JSON 문자열을 로드하여 인증 정보로 사용
 # ----------------------------------------------------
