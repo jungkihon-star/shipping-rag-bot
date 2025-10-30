@@ -1,7 +1,7 @@
 {
   "functions": {
     "api/sync.py": {
-      "memory": 1024 // 메모리를 1024MB (1GB)로 설정 (최대치)
+      "memory": 1024
     }
   },
   "rewrites": [
