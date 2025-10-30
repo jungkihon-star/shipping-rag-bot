@@ -5,7 +5,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
-from fastapi.routing import APIRoute  # <<< APIRoute 임포트 추가
+from fastapi.routing import APIRoute  
 from io import BytesIO
 
 # Vercel이 찾을 수 있도록 FastAPI 앱을 정의합니다.
@@ -17,8 +17,8 @@ app = FastAPI()
 
 # 파일 업로드(쓰기) 권한을 포함하도록 SCOPES 업데이트
 SCOPES = [
-    'https://www.googleapis.com/auth/drive.readonly',
-    'https://www.googleapis.com/auth/drive.file' # Drive에 파일 생성/업데이트 권한
+    # Drive에 파일 생성/업데이트 권한을 포함하여 저장소 문제를 우회 시도
+    'https://www.googleapis.com/auth/drive.file' 
 ]
 
 if 'GOOGLE_CREDENTIALS' not in os.environ:
@@ -38,20 +38,35 @@ try:
     )
 except Exception as e:
     raise RuntimeError(f"Failed to create Google credentials: {e}")
+
+# 옵션: 업로드할 폴더 ID를 환경 변수에서 가져옴
+# Vercel에 등록하신 'DRIVE_FOLDER_ID'를 사용하도록 변경합니다.
+DRIVE_PARENT_FOLDER_ID = os.environ.get('DRIVE_FOLDER_ID') # <--- 이 줄이 수정되었습니다.
+
 # ----------------------------------------------------
 
 
-def create_and_upload_file(drive_service, file_name, mime_type, content):
+def create_and_upload_file(drive_service, file_name, mime_type, content, is_text=True):
     """
     메모리에 생성된 파일 데이터를 Google Drive에 업로드합니다.
+    - is_text: 내용(content)이 문자열이면 True, 이미 바이트(바이너리)이면 False.
     """
     try:
         # 1. 파일 메타데이터 정의
         file_metadata = {'name': file_name}
         
+        # DRIVE_PARENT_FOLDER_ID가 설정되어 있다면, 해당 폴더에 업로드하도록 설정
+        if DRIVE_PARENT_FOLDER_ID:
+            file_metadata['parents'] = [DRIVE_PARENT_FOLDER_ID]
+            
         # 2. 파일 데이터를 BytesIO 스트림으로 변환
-        # 파일 내용을 메모리에 저장
-        content_bytes = content.encode('utf-8') if 'text' in mime_type else content
+        if is_text:
+            # 텍스트 파일은 utf-8로 인코딩하여 바이트로 변환
+            content_bytes = content.encode('utf-8')
+        else:
+            # 바이너리 파일은 이미 바이트여야 함
+            content_bytes = content
+            
         media = MediaIoBaseUpload(
             BytesIO(content_bytes),
             mimetype=mime_type,
@@ -63,14 +78,15 @@ def create_and_upload_file(drive_service, file_name, mime_type, content):
         file = drive_service.files().create(
             body=file_metadata,
             media_body=media,
-            fields='id, webContentLink' # 업로드된 파일 ID와 링크만 요청
+            fields='id, webContentLink, parents' # 업로드된 파일 ID와 링크, 부모 폴더 정보 요청
         ).execute()
 
         print(f"File uploaded: {file_name} (ID: {file.get('id')})")
         return {
             "name": file_name,
             "id": file.get('id'),
-            "link": file.get('webContentLink')
+            "link": file.get('webContentLink'),
+            "parent_id": file.get('parents')[0] if file.get('parents') else None
         }
     except Exception as e:
         print(f"Error uploading {file_name}: {e}")
@@ -99,9 +115,9 @@ def handle_sync_request():
             status_code=500
         )
     
-    # 2. 가상의 파일 데이터 생성
+    # 2. 가상의 파일 데이터 생성 (이전 오류 해결을 위해 바이트 변환 로직은 유지)
     
-    # a. 텍스트 파일
+    # a. 텍스트 파일 
     text_content = "이것은 Vercel Python Function에서 업로드한 테스트 텍스트 파일입니다."
     text_result = create_and_upload_file(
         drive_service, 
@@ -111,37 +127,45 @@ def handle_sync_request():
     )
     uploaded_files.append(text_result)
 
-    # b. PDF 파일 (간단한 텍스트 기반 PDF 생성)
-    # PDF는 복잡하여 실제 Python에서 생성하기 어려우므로, 
-    # 여기서는 간단한 텍스트 파일 업로드를 대체하고 MIME 타입만 PDF로 설정하여 테스트합니다.
-    # **실제 PDF 파일을 업로드하려면 외부 라이브러리(예: reportlab)를 사용해야 합니다.**
-    pdf_content = "%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>\nendobj\n4 0 obj\n<< /Length 32 >>\nstream\nBT /F1 24 Tf 50 700 Td (PDF Test) ET\nendstream\nendobj\nxref\n0 5\n0000000000 65535 f\n0000000010 00000 n\n0000000059 00000 n\n0000000115 00000 n\n0000000194 00000 n\ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n240\n%%EOF"
+    # b. PDF 파일
+    pdf_content = (
+        "%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+        "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>\nendobj\n"
+        "4 0 obj\n<< /Length 32 >>\nstream\nBT /F1 24 Tf 50 700 Td (PDF Test) ET\nendstream\nendobj\n"
+        "xref\n0 5\n0000000000 65535 f\n0000000010 00000 n\n0000000059 00000 n\n0000000115 00000 n\n0000000194 00000 n\ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n240\n%%EOF"
+    ).encode('latin-1') 
+    
     pdf_result = create_and_upload_file(
         drive_service, 
         "Vercel_Sync_Test.pdf", 
         "application/pdf", 
-        pdf_content
+        pdf_content,
+        is_text=False
     )
     uploaded_files.append(pdf_result)
     
-    # c. 엑셀 파일 (.xlsx)
-    # 엑셀 파일은 복잡하여 실제 Python에서 생성하기 어려우므로, 
-    # 여기서는 Google Sheets MIME 타입으로 업로드하여 Google Sheets 파일로 변환되도록 테스트합니다.
-    # 실제 Excel(.xlsx) 파일을 업로드하려면 openpyxl과 같은 라이브러리로 바이너리 데이터를 생성해야 합니다.
-    excel_content = "Column A,Column B\nData 1,Data 2\n" # CSV 형식의 간단한 데이터
+    # c. 엑셀 파일 (Google Sheets로 변환)
+    excel_content = "Column A,Column B\nData 1,Data 2\n".encode('utf-8') 
     excel_result = create_and_upload_file(
         drive_service, 
-        "Vercel_Sync_Test_Spreadsheet.csv", # CSV를 업로드하여 Sheets로 변환 가능
-        "application/vnd.google-apps.spreadsheet", # Sheets 파일로 변환하도록 요청
-        excel_content
+        "Vercel_Sync_Test_Spreadsheet.csv", 
+        "application/vnd.google-apps.spreadsheet", 
+        excel_content,
+        is_text=False
     )
     uploaded_files.append(excel_result)
 
     # 3. 최종 결과 반환
+    if DRIVE_PARENT_FOLDER_ID:
+        message = f"Files successfully uploaded to your shared folder (ID: {DRIVE_PARENT_FOLDER_ID}). Check your Drive."
+    else:
+        message = "Files uploaded, but storage quota error may persist. Set the DRIVE_PARENT_FOLDER_ID env variable."
+
     return JSONResponse(
         {
-            "status": "Upload complete",
-            "message": "Files successfully created in your Google Drive (check the links below).",
+            "status": "Upload attempt complete",
+            "message": message,
             "uploaded_files": uploaded_files
         }
     )
