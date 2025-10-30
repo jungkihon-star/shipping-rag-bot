@@ -1,1 +1,20 @@
-{ "functions": { "api/sync.py": { "memory": 1024 } }, "rewrites": [ { "source": "/api/ping", "destination": "/api/ping" }, { "source": "/api/ask", "destination": "/api/ask" }, { "source": "/api/sync", "destination": "/api/sync" } ] }
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/*.py",
+      "use": "@vercel/python",
+      "config": {
+        "maxLambdaSize": "20mb",
+        "runtime": "python3.11"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/sync/(.*)",
+      "dest": "/api/sync.py"
+    }
+  ],
+  "installCommand": "pip install -r requirements.txt"
+}
