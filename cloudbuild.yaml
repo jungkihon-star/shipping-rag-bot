@@ -1,9 +1,7 @@
-# cloudbuild.yaml (재확인)
+# cloudbuild.yaml (수정)
 steps:
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 'asia-southeast1-docker.pkg.dev/$PROJECT_ID/containers/shiprag-api:latest', '.']
 images:
   - 'asia-southeast1-docker.pkg.dev/$PROJECT_ID/containers/shiprag-api:latest'
-options:
-  # 이 코드는 리전별 빌드에서만 작동합니다.
-  logsBucket: gs://cool-attic-476610-u8-cloudbuild-logs-asia-southeast1
+# options: 섹션 전체를 삭제합니다.
