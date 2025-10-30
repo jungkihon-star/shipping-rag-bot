@@ -5,6 +5,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute  # <<< APIRoute 임포트 추가
 from io import BytesIO
 
 # Vercel이 찾을 수 있도록 FastAPI 앱을 정의합니다.
@@ -126,6 +127,7 @@ def handle_sync_request():
     # c. 엑셀 파일 (.xlsx)
     # 엑셀 파일은 복잡하여 실제 Python에서 생성하기 어려우므로, 
     # 여기서는 Google Sheets MIME 타입으로 업로드하여 Google Sheets 파일로 변환되도록 테스트합니다.
+    # 실제 Excel(.xlsx) 파일을 업로드하려면 openpyxl과 같은 라이브러리로 바이너리 데이터를 생성해야 합니다.
     excel_content = "Column A,Column B\nData 1,Data 2\n" # CSV 형식의 간단한 데이터
     excel_result = create_and_upload_file(
         drive_service, 
