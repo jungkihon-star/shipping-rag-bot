@@ -185,3 +185,4 @@ def home():
     기본 엔드포인트 응답입니다.
     """
     return {"message": "GCS Sync API is running. Use /api/sync/upload to upload files or /api/sync/list to view files."}
+
