@@ -1,13 +1,16 @@
 {
-  "functions": {
-    "api/*.py": {
-      "runtime": "python"
-    }
-  },
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
+      "source": "/api/ping",
+      "destination": "/api/ping"
+    },
+    {
+      "source": "/api/ask",
+      "destination": "/api/ask"
+    },
+    {
+      "source": "/api/sync",
+      "destination": "/api/sync"
     }
   ]
 }
