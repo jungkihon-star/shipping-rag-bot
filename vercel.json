@@ -1,16 +1,1 @@
-{
-  "functions": {
-    "api/**/*.py": {
-      "runtime": "vercel-python@3.11",
-      "memory": 1024,
-      "maxDuration": 60,
-      "includeFiles": ["requirements.txt", "api/_vendor/**"]
-    }
-  },
-  "installCommand": "pip install -r requirements.txt -t api/_vendor",
-  "rewrites": [
-    { "source": "/api/ping", "destination": "/api/ping" },
-    { "source": "/api/ask", "destination": "/api/ask" },
-    { "source": "/api/sync", "destination": "/api/sync" }
-  ]
-}
+{ "functions": { "api/sync.py": { "memory": 1024 } }, "rewrites": [ { "source": "/api/ping", "destination": "/api/ping" }, { "source": "/api/ask", "destination": "/api/ask" }, { "source": "/api/sync", "destination": "/api/sync" } ] }
