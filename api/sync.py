@@ -21,11 +21,10 @@ SCOPES = [
 ]
 
 # 환경 변수 유효성 검사 (Vercel 환경 변수)
-if 'GOOGLE_CREDENTIALS' not in os.environ:
-    # 안전 장치: 환경 변수가 설정되지 않은 경우 처리
-    creds_info = None
-    credentials = None
-else:
+creds_info = None
+credentials = None
+
+if 'GOOGLE_CREDENTIALS' in os.environ:
     try:
         creds_json = os.environ.get('GOOGLE_CREDENTIALS')
         creds_info = json.loads(creds_json)
@@ -35,12 +34,12 @@ else:
             scopes=SCOPES,
         )
     except json.JSONDecodeError:
-        # JSON 파싱 오류 처리
-        creds_info = None
-        credentials = None
+        print("Error: GOOGLE_CREDENTIALS is not valid JSON.")
     except Exception as e:
-        # 기타 자격 증명 생성 오류 처리
-        credentials = None
+        print(f"Error creating credentials: {e}")
+else:
+    print("Warning: GOOGLE_CREDENTIALS environment variable not set.")
+
 
 # 업로드할 GCS 버킷 이름 (예: vercel-sync-storage-kr)
 GCS_BUCKET_NAME = os.environ.get('GCS_BUCKET_NAME')
@@ -55,7 +54,6 @@ def create_and_upload_object(storage_service, bucket_name, object_name, mime_typ
     if not bucket_name:
         return {"name": object_name, "status": "Failed", "error": "GCS_BUCKET_NAME environment variable is not set."}
     
-    # Credentials 또는 Service 빌드 실패 시 안전 장치
     if not storage_service:
         return {"name": object_name, "status": "Failed", "error": "Google Cloud Storage service not initialized. Check credentials."}
 
@@ -69,10 +67,12 @@ def create_and_upload_object(storage_service, bucket_name, object_name, mime_typ
         gcs_path = f"user-uploads/{object_name}"
 
         # insert()를 사용하여 GCS에 업로드
+        # acl='publicRead'를 명시적으로 설정하여 객체 수준 ACL이 활성화된 경우 공개되도록 시도합니다.
         uploaded_object = storage_service.objects().insert(
             bucket=bucket_name,
             name=gcs_path,
-            media_body=media
+            media_body=media,
+            predefinedAcl='publicRead' # ACL을 통해 공개 설정 시도
         ).execute()
 
         # 공개 HTTP URL 형식: https://storage.googleapis.com/[버킷 이름]/[객체 이름]
@@ -90,7 +90,7 @@ def create_and_upload_object(storage_service, bucket_name, object_name, mime_typ
         return {"name": object_name, "status": "Failed", "error": str(e)}
 
 # ----------------------------------------------------
-# 2. 파일 목록 조회 엔드포인트 추가
+# 2. 파일 목록 조회 엔드포인트
 # ----------------------------------------------------
 
 @app.get("/list")
@@ -113,7 +113,6 @@ def list_files_in_gcs():
 
     try:
         # 'user-uploads/' 접두사(Prefix)를 사용하여 해당 폴더 내의 객체만 조회합니다.
-        # maxResults는 한 번에 가져올 객체 수를 제한합니다.
         request = storage_service.objects().list(
             bucket=GCS_BUCKET_NAME, 
             prefix='user-uploads/',
@@ -121,16 +120,14 @@ def list_files_in_gcs():
         )
         response = request.execute()
         
-        # 목록을 저장할 리스트
         file_list = []
         
-        # response['items']가 존재하는 경우 객체 정보를 추출합니다.
         if 'items' in response:
             for item in response['items']:
                 # 객체 이름에서 'user-uploads/' 접두사를 제거하여 사용자에게 깔끔한 이름 제공
                 clean_name = item['name'].replace('user-uploads/', '', 1)
                 
-                # root 경로 자체는 제외 (이름이 'user-uploads/'인 경우)
+                # root 경로 자체는 제외
                 if clean_name: 
                     # 공개 URL 생성
                     public_url = f"https://storage.googleapis.com/{GCS_BUCKET_NAME}/{item['name']}"
