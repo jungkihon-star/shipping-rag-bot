@@ -119,3 +119,15 @@ def sync():
     except Exception as e:
         tb = traceback.format_exc(limit=3)
         return JSONResponse(status_code=500, content={"error": str(e), "trace": tb})
+        # api/ask.py 혹은 api/sync.py 내부에 추가
+from fastapi.responses import JSONResponse 
+
+# ... FastAPI 앱 초기화 ...
+
+@app.get("/")
+@app.post("/") 
+@app.get("/{path:path}")
+@app.post("/{path:path}") 
+def handle_request():
+    # 실제 질의응답 및 동기화 로직이 들어갈 곳
+    return JSONResponse({"status": "ready to receive data"})
