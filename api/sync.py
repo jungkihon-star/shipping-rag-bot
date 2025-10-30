@@ -20,23 +20,27 @@ SCOPES = [
     'https://www.googleapis.com/auth/devstorage.full_control' 
 ]
 
+# 환경 변수 유효성 검사 (Vercel 환경 변수)
 if 'GOOGLE_CREDENTIALS' not in os.environ:
-    raise ValueError("GOOGLE_CREDENTIALS environment variable not set.")
-
-try:
-    creds_json = os.environ.get('GOOGLE_CREDENTIALS')
-    creds_info = json.loads(creds_json)
-except json.JSONDecodeError:
-    raise ValueError("GOOGLE_CREDENTIALS environment variable is not valid JSON.")
-
-try:
-    # Service Account 자격 증명 사용
-    credentials = service_account.Credentials.from_service_account_info(
-        creds_info, 
-        scopes=SCOPES,
-    )
-except Exception as e:
-    raise RuntimeError(f"Failed to create Google credentials: {e}")
+    # 안전 장치: 환경 변수가 설정되지 않은 경우 처리
+    creds_info = None
+    credentials = None
+else:
+    try:
+        creds_json = os.environ.get('GOOGLE_CREDENTIALS')
+        creds_info = json.loads(creds_json)
+        # Service Account 자격 증명 사용
+        credentials = service_account.Credentials.from_service_account_info(
+            creds_info, 
+            scopes=SCOPES,
+        )
+    except json.JSONDecodeError:
+        # JSON 파싱 오류 처리
+        creds_info = None
+        credentials = None
+    except Exception as e:
+        # 기타 자격 증명 생성 오류 처리
+        credentials = None
 
 # 업로드할 GCS 버킷 이름 (예: vercel-sync-storage-kr)
 GCS_BUCKET_NAME = os.environ.get('GCS_BUCKET_NAME')
@@ -50,6 +54,10 @@ def create_and_upload_object(storage_service, bucket_name, object_name, mime_typ
     """
     if not bucket_name:
         return {"name": object_name, "status": "Failed", "error": "GCS_BUCKET_NAME environment variable is not set."}
+    
+    # Credentials 또는 Service 빌드 실패 시 안전 장치
+    if not storage_service:
+        return {"name": object_name, "status": "Failed", "error": "Google Cloud Storage service not initialized. Check credentials."}
 
     try:
         media = MediaIoBaseUpload(
@@ -60,6 +68,7 @@ def create_and_upload_object(storage_service, bucket_name, object_name, mime_typ
         # user-uploads/ 폴더 아래에 객체를 저장합니다.
         gcs_path = f"user-uploads/{object_name}"
 
+        # insert()를 사용하여 GCS에 업로드
         uploaded_object = storage_service.objects().insert(
             bucket=bucket_name,
             name=gcs_path,
@@ -88,9 +97,9 @@ def create_and_upload_object(storage_service, bucket_name, object_name, mime_typ
 def list_files_in_gcs():
     """GCS 버킷의 'user-uploads/' 폴더 내 파일 목록을 반환합니다."""
 
-    if not GCS_BUCKET_NAME:
+    if not GCS_BUCKET_NAME or not credentials:
         return JSONResponse(
-            {"status": "Failed", "message": "GCS_BUCKET_NAME environment variable is not set."},
+            {"status": "Failed", "message": "Environment variables or credentials not properly set."},
             status_code=500
         )
         
@@ -151,17 +160,18 @@ def list_files_in_gcs():
         )
 
 # ----------------------------------------------------
-# 3. 라우팅 설정
+# 3. 파일 업로드 엔드포인트
 # ----------------------------------------------------
-
-@app.get("/")
-def check_status():
-    """앱 상태 체크용 엔드포인트"""
-    return JSONResponse({"status": "ready", "target_bucket": GCS_BUCKET_NAME or "Not Set"})
 
 @app.post("/upload")
 async def upload_file_to_gcs(file: UploadFile = File(...)):
     """외부에서 파일을 받아 GCS에 업로드하는 메인 엔드포인트"""
+    
+    if not credentials:
+         return JSONResponse(
+            {"status": "Failed", "message": "Service Account credentials are not valid or initialized."},
+            status_code=500
+        )
     
     # 1. GCS 서비스 객체 빌드
     try:
@@ -211,6 +221,15 @@ async def upload_file_to_gcs(file: UploadFile = File(...)):
             },
             status_code=500
         )
+
+# ----------------------------------------------------
+# 4. 라우팅 설정
+# ----------------------------------------------------
+
+@app.get("/")
+def check_status():
+    """앱 상태 체크용 엔드포인트"""
+    return JSONResponse({"status": "ready", "target_bucket": GCS_BUCKET_NAME or "Not Set"})
 
 # FastAPI 앱의 메인 라우팅 설정 (Vercel 환경을 위해 필요)
 app.router.routes.insert(0, APIRoute("/", check_status, methods=["GET"]))
