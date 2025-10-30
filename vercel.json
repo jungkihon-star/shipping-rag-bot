@@ -1,7 +1,8 @@
 {
   "functions": {
     "api/*.py": {
-      "runtime": "vercel-python@3.9" 
+      "runtime": "python",
+      "memory": 1024 // 메모리 설정 (선택 사항이지만 안정성 향상을 위해 추가)
     }
   },
   "rewrites": [
