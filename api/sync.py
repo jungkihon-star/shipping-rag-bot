@@ -24,6 +24,13 @@ SCOPES = [
 if 'GOOGLE_CREDENTIALS' not in os.environ:
     raise ValueError("GOOGLE_CREDENTIALS environment variable not set.")
 
+# 위임을 위한 사용자 이메일 (업로드할 Drive의 실제 사용자 계정)
+USER_EMAIL_FOR_DELEGATION = os.environ.get('USER_EMAIL_FOR_DELEGATION')
+if not USER_EMAIL_FOR_DELEGATION:
+    # 이 오류를 발생시키지 않으려면 다음 단계에서 환경 변수를 설정해야 합니다.
+    raise ValueError("USER_EMAIL_FOR_DELEGATION environment variable not set. This is required for Google Drive Service Account Delegation.")
+
+
 try:
     creds_json = os.environ.get('GOOGLE_CREDENTIALS')
     creds_info = json.loads(creds_json)
@@ -31,17 +38,19 @@ except json.JSONDecodeError:
     raise ValueError("GOOGLE_CREDENTIALS environment variable is not valid JSON.")
 
 try:
-    # 업데이트된 SCOPES를 사용하여 credentials 객체 생성
+    # UPDATED: subject 매개변수를 사용하여 사용자 계정으로 위임합니다.
+    # 이렇게 하면 Service Account가 아닌 사용자 계정의 할당량을 사용합니다.
     credentials = service_account.Credentials.from_service_account_info(
         creds_info, 
-        scopes=SCOPES
+        scopes=SCOPES,
+        subject=USER_EMAIL_FOR_DELEGATION # <-- 핵심 변경 사항: 사용자 위임
     )
 except Exception as e:
     raise RuntimeError(f"Failed to create Google credentials: {e}")
 
 # 옵션: 업로드할 폴더 ID를 환경 변수에서 가져옴
 # Vercel에 등록하신 'DRIVE_FOLDER_ID'를 사용하도록 변경합니다.
-DRIVE_PARENT_FOLDER_ID = os.environ.get('DRIVE_FOLDER_ID') # <--- 이 줄은 이미 수정되었습니다.
+DRIVE_PARENT_FOLDER_ID = os.environ.get('DRIVE_FOLDER_ID')
 
 # ----------------------------------------------------
 
@@ -57,6 +66,7 @@ def create_and_upload_file(drive_service, file_name, mime_type, content, is_text
         
         # DRIVE_PARENT_FOLDER_ID가 설정되어 있다면, 해당 폴더에 업로드하도록 설정
         if DRIVE_PARENT_FOLDER_ID:
+            # 부모 폴더 ID가 있으면 파일의 소유권은 해당 폴더의 소유자(사용자)에게 넘어갑니다.
             file_metadata['parents'] = [DRIVE_PARENT_FOLDER_ID]
             
         # 2. 파일 데이터를 BytesIO 스트림으로 변환
@@ -76,13 +86,13 @@ def create_and_upload_file(drive_service, file_name, mime_type, content, is_text
 
         # 3. Drive API를 사용하여 파일 업로드 실행
         # supportsAllDrives=True와 enforceSingleParent=True를 추가하여 
-        # 서비스 계정의 저장소 할당량 문제를 우회하고, 공유 폴더에 강제 업로드합니다.
+        # 공유 폴더에 강제 업로드합니다.
         file = drive_service.files().create(
             body=file_metadata,
             media_body=media,
             fields='id, webContentLink, parents', # 업로드된 파일 ID와 링크, 부모 폴더 정보 요청
-            supportsAllDrives=True,  # <--- 추가: 공유 드라이브 및 공유 폴더 지원 활성화
-            enforceSingleParent=True # <--- 추가: 지정된 부모 폴더에 강제 업로드
+            supportsAllDrives=True,
+            enforceSingleParent=True
         ).execute()
 
         print(f"File uploaded: {file_name} (ID: {file.get('id')})")
