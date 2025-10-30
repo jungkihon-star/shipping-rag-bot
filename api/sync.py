@@ -24,12 +24,8 @@ SCOPES = [
 if 'GOOGLE_CREDENTIALS' not in os.environ:
     raise ValueError("GOOGLE_CREDENTIALS environment variable not set.")
 
-# 위임을 위한 사용자 이메일 (업로드할 Drive의 실제 사용자 계정)
-USER_EMAIL_FOR_DELEGATION = os.environ.get('USER_EMAIL_FOR_DELEGATION')
-if not USER_EMAIL_FOR_DELEGATION:
-    # 이 오류를 발생시키지 않으려면 다음 단계에서 환경 변수를 설정해야 합니다.
-    raise ValueError("USER_EMAIL_FOR_DELEGATION environment variable not set. This is required for Google Drive Service Account Delegation.")
-
+# USER_EMAIL_FOR_DELEGATION 변수는 일반 Gmail 계정에서는 필요하지 않으므로 제거합니다.
+# 대신, Service Account 자체를 Drive 폴더의 편집자/소유자로 설정해야 합니다.
 
 try:
     creds_json = os.environ.get('GOOGLE_CREDENTIALS')
@@ -38,12 +34,12 @@ except json.JSONDecodeError:
     raise ValueError("GOOGLE_CREDENTIALS environment variable is not valid JSON.")
 
 try:
-    # UPDATED: subject 매개변수를 사용하여 사용자 계정으로 위임합니다.
-    # 이렇게 하면 Service Account가 아닌 사용자 계정의 할당량을 사용합니다.
+    # UPDATED: subject 매개변수를 제거하고 기본 Service Account 자격 증명을 사용합니다.
+    # 일반 Gmail 계정에서는 위임 설정을 할 수 없으므로, 이 방식이 맞습니다.
     credentials = service_account.Credentials.from_service_account_info(
         creds_info, 
         scopes=SCOPES,
-        subject=USER_EMAIL_FOR_DELEGATION # <-- 핵심 변경 사항: 사용자 위임
+        # subject=USER_EMAIL_FOR_DELEGATION <--- 이 줄을 제거했습니다.
     )
 except Exception as e:
     raise RuntimeError(f"Failed to create Google credentials: {e}")
@@ -85,7 +81,7 @@ def create_and_upload_file(drive_service, file_name, mime_type, content, is_text
         )
 
         # 3. Drive API를 사용하여 파일 업로드 실행
-        # supportsAllDrives=True와 enforceSingleParent=True를 추가하여 
+        # supportsAllDrives=True와 enforceSingleParent=True를 유지하여 
         # 공유 폴더에 강제 업로드합니다.
         file = drive_service.files().create(
             body=file_metadata,
