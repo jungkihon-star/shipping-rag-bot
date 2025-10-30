@@ -3,9 +3,9 @@ import json
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import JSONResponse
-from fastapi.routing import APIRoute  
+from fastapi.routing import APIRoute
 from io import BytesIO
 
 # Vercel이 찾을 수 있도록 FastAPI 앱을 정의합니다.
@@ -15,17 +15,13 @@ app = FastAPI()
 # 1. 환경 변수에서 JSON 문자열을 로드하여 인증 정보로 사용
 # ----------------------------------------------------
 
-# 파일 업로드(쓰기) 권한을 포함하도록 SCOPES 업데이트
+# GCS 접근 권한으로 SCOPES 설정
 SCOPES = [
-    # Drive에 파일 생성/업데이트 권한을 포함하여 저장소 문제를 우회 시도
-    'https://www.googleapis.com/auth/drive.file' 
+    'https://www.googleapis.com/auth/devstorage.full_control' 
 ]
 
 if 'GOOGLE_CREDENTIALS' not in os.environ:
     raise ValueError("GOOGLE_CREDENTIALS environment variable not set.")
-
-# USER_EMAIL_FOR_DELEGATION 변수는 일반 Gmail 계정에서는 필요하지 않으므로 제거합니다.
-# 대신, Service Account 자체를 Drive 폴더의 편집자/소유자로 설정해야 합니다.
 
 try:
     creds_json = os.environ.get('GOOGLE_CREDENTIALS')
@@ -34,151 +30,189 @@ except json.JSONDecodeError:
     raise ValueError("GOOGLE_CREDENTIALS environment variable is not valid JSON.")
 
 try:
-    # UPDATED: subject 매개변수를 제거하고 기본 Service Account 자격 증명을 사용합니다.
-    # 일반 Gmail 계정에서는 위임 설정을 할 수 없으므로, 이 방식이 맞습니다.
+    # Service Account 자격 증명 사용
     credentials = service_account.Credentials.from_service_account_info(
         creds_info, 
         scopes=SCOPES,
-        # subject=USER_EMAIL_FOR_DELEGATION <--- 이 줄을 제거했습니다.
     )
 except Exception as e:
     raise RuntimeError(f"Failed to create Google credentials: {e}")
 
-# 옵션: 업로드할 폴더 ID를 환경 변수에서 가져옴
-# Vercel에 등록하신 'DRIVE_FOLDER_ID'를 사용하도록 변경합니다.
-DRIVE_PARENT_FOLDER_ID = os.environ.get('DRIVE_FOLDER_ID')
+# 업로드할 GCS 버킷 이름 (예: vercel-sync-storage-kr)
+GCS_BUCKET_NAME = os.environ.get('GCS_BUCKET_NAME')
 
 # ----------------------------------------------------
 
+# 헬퍼 함수: GCS 업로드
+def create_and_upload_object(storage_service, bucket_name, object_name, mime_type, content):
+    """
+    업로드된 파일 데이터를 Google Cloud Storage (GCS)에 객체로 업로드합니다.
+    """
+    if not bucket_name:
+        return {"name": object_name, "status": "Failed", "error": "GCS_BUCKET_NAME environment variable is not set."}
 
-def create_and_upload_file(drive_service, file_name, mime_type, content, is_text=True):
-    """
-    메모리에 생성된 파일 데이터를 Google Drive에 업로드합니다.
-    - is_text: 내용(content)이 문자열이면 True, 이미 바이트(바이너리)이면 False.
-    """
     try:
-        # 1. 파일 메타데이터 정의
-        file_metadata = {'name': file_name}
-        
-        # DRIVE_PARENT_FOLDER_ID가 설정되어 있다면, 해당 폴더에 업로드하도록 설정
-        if DRIVE_PARENT_FOLDER_ID:
-            # 부모 폴더 ID가 있으면 파일의 소유권은 해당 폴더의 소유자(사용자)에게 넘어갑니다.
-            file_metadata['parents'] = [DRIVE_PARENT_FOLDER_ID]
-            
-        # 2. 파일 데이터를 BytesIO 스트림으로 변환
-        if is_text:
-            # 텍스트 파일은 utf-8로 인코딩하여 바이트로 변환
-            content_bytes = content.encode('utf-8')
-        else:
-            # 바이너리 파일은 이미 바이트여야 함
-            content_bytes = content
-            
         media = MediaIoBaseUpload(
-            BytesIO(content_bytes),
-            mimetype=mime_type,
-            chunksize=1024*1024, # 1MB 청크 사이즈
-            resumable=True
+            BytesIO(content),
+            mimetype=mime_type
         )
+        
+        # user-uploads/ 폴더 아래에 객체를 저장합니다.
+        gcs_path = f"user-uploads/{object_name}"
 
-        # 3. Drive API를 사용하여 파일 업로드 실행
-        # supportsAllDrives=True와 enforceSingleParent=True를 유지하여 
-        # 공유 폴더에 강제 업로드합니다.
-        file = drive_service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id, webContentLink, parents', # 업로드된 파일 ID와 링크, 부모 폴더 정보 요청
-            supportsAllDrives=True,
-            enforceSingleParent=True
+        uploaded_object = storage_service.objects().insert(
+            bucket=bucket_name,
+            name=gcs_path,
+            media_body=media
         ).execute()
 
-        print(f"File uploaded: {file_name} (ID: {file.get('id')})")
+        # 공개 HTTP URL 형식: https://storage.googleapis.com/[버킷 이름]/[객체 이름]
+        public_url = f"https://storage.googleapis.com/{bucket_name}/{gcs_path}"
+
+        print(f"Object uploaded: {object_name} (Bucket: {bucket_name})")
         return {
-            "name": file_name,
-            "id": file.get('id'),
-            "link": file.get('webContentLink'),
-            "parent_id": file.get('parents')[0] if file.get('parents') else None
+            "name": object_name,
+            "status": "Success",
+            "bucket": bucket_name,
+            "url": public_url
         }
     except Exception as e:
-        print(f"Error uploading {file_name}: {e}")
-        return {"name": file_name, "status": "Failed", "error": str(e)}
-
+        print(f"Error uploading {object_name} to GCS: {e}")
+        return {"name": object_name, "status": "Failed", "error": str(e)}
 
 # ----------------------------------------------------
-# 2. 유연한 라우팅 엔드포인트 정의 및 동기화 로직 실행
+# 2. 파일 목록 조회 엔드포인트 추가
 # ----------------------------------------------------
-@app.get("/")
-@app.post("/") 
-@app.get("/{path:path}")
-@app.post("/{path:path}") 
-def handle_sync_request():
-    """
-    /api/sync 요청을 받아 Google Drive에 가상의 파일을 업로드하는 동기화 로직을 실행합니다.
-    """
-    uploaded_files = []
-    
-    # 1. Drive 서비스 객체 빌드
+
+@app.get("/list")
+def list_files_in_gcs():
+    """GCS 버킷의 'user-uploads/' 폴더 내 파일 목록을 반환합니다."""
+
+    if not GCS_BUCKET_NAME:
+        return JSONResponse(
+            {"status": "Failed", "message": "GCS_BUCKET_NAME environment variable is not set."},
+            status_code=500
+        )
+        
     try:
-        drive_service = build('drive', 'v3', credentials=credentials)
+        storage_service = build('storage', 'v1', credentials=credentials)
     except Exception as e:
         return JSONResponse(
-            {"status": "Failed", "message": f"Failed to build Drive service: {e}"},
+            {"status": "Failed", "message": f"Failed to build Storage service: {e}"},
+            status_code=500
+        )
+
+    try:
+        # 'user-uploads/' 접두사(Prefix)를 사용하여 해당 폴더 내의 객체만 조회합니다.
+        # maxResults는 한 번에 가져올 객체 수를 제한합니다.
+        request = storage_service.objects().list(
+            bucket=GCS_BUCKET_NAME, 
+            prefix='user-uploads/',
+            maxResults=100
+        )
+        response = request.execute()
+        
+        # 목록을 저장할 리스트
+        file_list = []
+        
+        # response['items']가 존재하는 경우 객체 정보를 추출합니다.
+        if 'items' in response:
+            for item in response['items']:
+                # 객체 이름에서 'user-uploads/' 접두사를 제거하여 사용자에게 깔끔한 이름 제공
+                clean_name = item['name'].replace('user-uploads/', '', 1)
+                
+                # root 경로 자체는 제외 (이름이 'user-uploads/'인 경우)
+                if clean_name: 
+                    # 공개 URL 생성
+                    public_url = f"https://storage.googleapis.com/{GCS_BUCKET_NAME}/{item['name']}"
+                    
+                    file_list.append({
+                        "name": clean_name,
+                        "size_bytes": item.get('size'),
+                        "mime_type": item.get('contentType'),
+                        "last_modified": item.get('updated'),
+                        "url": public_url
+                    })
+
+        return JSONResponse(
+            {
+                "status": "Success",
+                "bucket": GCS_BUCKET_NAME,
+                "file_count": len(file_list),
+                "files": file_list
+            }
+        )
+
+    except Exception as e:
+        print(f"Error listing objects from GCS: {e}")
+        return JSONResponse(
+            {"status": "Failed", "message": f"Error listing files from GCS: {e}"},
+            status_code=500
+        )
+
+# ----------------------------------------------------
+# 3. 라우팅 설정
+# ----------------------------------------------------
+
+@app.get("/")
+def check_status():
+    """앱 상태 체크용 엔드포인트"""
+    return JSONResponse({"status": "ready", "target_bucket": GCS_BUCKET_NAME or "Not Set"})
+
+@app.post("/upload")
+async def upload_file_to_gcs(file: UploadFile = File(...)):
+    """외부에서 파일을 받아 GCS에 업로드하는 메인 엔드포인트"""
+    
+    # 1. GCS 서비스 객체 빌드
+    try:
+        storage_service = build('storage', 'v1', credentials=credentials)
+    except Exception as e:
+        return JSONResponse(
+            {"status": "Failed", "message": f"Failed to build Storage service: {e}"},
             status_code=500
         )
     
-    # 2. 가상의 파일 데이터 생성 (이전 오류 해결을 위해 바이트 변환 로직은 유지)
+    file_name = file.filename
+    mime_type = file.content_type
     
-    # a. 텍스트 파일 
-    text_content = "이것은 Vercel Python Function에서 업로드한 테스트 텍스트 파일입니다."
-    text_result = create_and_upload_file(
-        drive_service, 
-        "Vercel_Sync_Test.txt", 
-        "text/plain", 
-        text_content
-    )
-    uploaded_files.append(text_result)
+    try:
+        content_bytes = await file.read()
+    except Exception as e:
+        return JSONResponse(
+            {"status": "Failed", "message": f"Failed to read uploaded file: {e}"},
+            status_code=400
+        )
 
-    # b. PDF 파일
-    pdf_content = (
-        "%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
-        "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
-        "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>\nendobj\n"
-        "4 0 obj\n<< /Length 32 >>\nstream\nBT /F1 24 Tf 50 700 Td (PDF Test) ET\nendstream\nendobj\n"
-        "xref\n0 5\n0000000000 65535 f\n0000000010 00000 n\n0000000059 00000 n\n0000000115 00000 n\n0000000194 00000 n\ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n240\n%%EOF"
-    ).encode('latin-1') 
-    
-    pdf_result = create_and_upload_file(
-        drive_service, 
-        "Vercel_Sync_Test.pdf", 
-        "application/pdf", 
-        pdf_content,
-        is_text=False
+    # 3. GCS 업로드 실행
+    upload_result = create_and_upload_object(
+        storage_service, 
+        GCS_BUCKET_NAME,
+        file_name, 
+        mime_type, 
+        content_bytes
     )
-    uploaded_files.append(pdf_result)
-    
-    # c. 엑셀 파일 (CSV 파일로 업로드)
-    excel_content = "Column A,Column B\nData 1,Data 2\n".encode('utf-8') 
-    excel_result = create_and_upload_file(
-        drive_service, 
-        "Vercel_Sync_Test_Spreadsheet.csv", 
-        "text/csv", # <--- MIME 타입을 CSV 원본 타입으로 수정했습니다.
-        excel_content,
-        is_text=False
-    )
-    uploaded_files.append(excel_result)
 
-    # 3. 최종 결과 반환
-    if DRIVE_PARENT_FOLDER_ID:
-        message = f"Files successfully uploaded to your shared folder (ID: {DRIVE_PARENT_FOLDER_ID}). Check your Drive."
+    # 4. 최종 결과 반환
+    if upload_result["status"] == "Success":
+        message = f"File '{file_name}' successfully uploaded and publicly accessible."
+        return JSONResponse(
+            {
+                "status": "Success",
+                "message": message,
+                "file_info": upload_result
+            }
+        )
     else:
-        message = "Files uploaded, but storage quota error may persist. Set the DRIVE_PARENT_FOLDER_ID env variable."
-
-    return JSONResponse(
-        {
-            "status": "Upload attempt complete",
-            "message": message,
-            "uploaded_files": uploaded_files
-        }
-    )
+        return JSONResponse(
+            {
+                "status": "Failed",
+                "message": f"Upload failed for '{file_name}'.",
+                "error_details": upload_result["error"]
+            },
+            status_code=500
+        )
 
 # FastAPI 앱의 메인 라우팅 설정 (Vercel 환경을 위해 필요)
-app.router.routes.insert(0, APIRoute("/", handle_sync_request, methods=["GET", "POST"]))
+app.router.routes.insert(0, APIRoute("/", check_status, methods=["GET"]))
+app.router.routes.insert(1, APIRoute("/upload", upload_file_to_gcs, methods=["POST"]))
+app.router.routes.insert(2, APIRoute("/list", list_files_in_gcs, methods=["GET"]))
