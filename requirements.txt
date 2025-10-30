@@ -6,3 +6,7 @@ google-auth-httplib2==0.2.0
 pinecone-client==5.0.1
 pypdf==4.3.1
 fastapi==0.115.5
+
+파일 업로드를 위해 반드시 필요한 패키지를 추가합니다.
+
+python-multipart
