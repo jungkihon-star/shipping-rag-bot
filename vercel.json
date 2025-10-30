@@ -6,7 +6,8 @@
       "use": "@vercel/python",
       "config": {
         "maxLambdaSize": "20mb",
-        "runtime": "python3.11"
+        "runtime": "python3.11",
+        "installCommand": "pip install -r requirements.txt"
       }
     }
   ],
@@ -15,6 +16,5 @@
       "src": "/api/sync/(.*)",
       "dest": "/api/sync.py"
     }
-  ],
-  "installCommand": "pip install -r requirements.txt"
+  ]
 }
