@@ -56,7 +56,7 @@ def build_prompt(question: str, matches: List[Dict[str, Any]]) -> str:
     return header + f"질문:\n{question}\n\n컨텍스트:\n" + "\n\n---\n\n".join(ctx_blocks)
 
 # ---------- Q&A endpoint ----------
-/ask
+@app.post("/ask")
 def ask(body: Q = Body(...)) -> JSONResponse:
     """
     Vercel 경로: POST https://<domain>/api/apk
