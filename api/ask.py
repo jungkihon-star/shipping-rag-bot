@@ -1,35 +1,48 @@
-import os
-print(f"DEBUG: Starting RAG bot initialization. Environment Keys loaded: {os.environ.get('OPENAI_API_KEY', 'NOT_SET')[:5]}...")
+# api/ask.py
 import os
 import traceback
 from typing import List, Dict, Any
 
-from fastapi import FastAPI, Body
+from fastapi import FastAPI, Body, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 from openai import OpenAI
-from pinecone import Pinecone
+from pinecone import Pinecone, PineconeException
 
-# ---------- FastAPI app ----------
 app = FastAPI()
 
-# ---------- Health check ----------
+# ---------- Health ----------
 @app.get("/")
 def ping() -> PlainTextResponse:
-    # Vercel 경로: GET https://<domain>/api/apk
     return PlainTextResponse("ok")
 
-# ---------- ENV & clients ----------
-REQUIRED = ["OPENAI_API_KEY", "PINECONE_API_KEY"]
-missing = [k for k in REQUIRED if not os.getenv(k)]
-if missing:
-    raise RuntimeError(f"Missing env: {missing}")
+# ---------- Env keys ----------
+REQ_ENV = ["OPENAI_API_KEY", "PINECONE_API_KEY", "PINECONE_INDEX_NAME", "PINECONE_HOST"]
 
-INDEX_NAME = os.getenv("PINECONE_INDEX") or os.getenv("INDEX_NAME") or "shipping-rag"
+# 지연 초기화 캐시
+_client: OpenAI | None = None
+_index = None  # Pinecone Index 핸들
 
-client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-pc = Pinecone(api_key=os.environ["PINECONE_API_KEY"])
-index = pc.Index(INDEX_NAME)
+def get_services() -> tuple[OpenAI, Any]:
+    """요청 시점에만 외부 클라이언트 생성."""
+    missing = [k for k in REQ_ENV if not os.getenv(k)]
+    if missing:
+        # 헬스체크는 통과시키되 기능 경로만 503
+        raise HTTPException(status_code=503, detail=f"Missing env: {missing}")
+
+    global _client, _index
+    if _client is None:
+        _client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    if _index is None:
+        pc = Pinecone(api_key=os.environ["PINECONE_API_KEY"])
+        name = os.environ["PINECONE_INDEX_NAME"]
+        host = os.environ["PINECONE_HOST"]  # Pinecone 콘솔의 Index host 전체 URL
+        try:
+            _index = pc.Index(name, host=host)
+        except PineconeException as e:
+            # 인증/호스트 오류 시 부팅은 유지, 요청만 실패
+            raise HTTPException(status_code=503, detail=f"Pinecone error: {type(e).__name__}")
+    return _client, _index
 
 # ---------- Schemas ----------
 class Q(BaseModel):
@@ -38,16 +51,16 @@ class Q(BaseModel):
     max_tokens: int = Field(600, ge=64, le=2000)
 
 # ---------- Helpers ----------
-def embed_one(text: str) -> List[float]:
-    r = client.embeddings.create(model="text-embedding-3-large", input=[text])
+def embed_one(client: OpenAI, text: str) -> List[float]:
+    r = client.embeddings.create(model="text-embedding-3-large", input=text)
     return r.data[0].embedding
 
 def build_prompt(question: str, matches: List[Dict[str, Any]]) -> str:
     ctx_blocks: List[str] = []
     for i, m in enumerate(matches, start=1):
         md = m.get("metadata", {}) or {}
-        src = md.get("source", "") or md.get("file", "") or md.get("id", "")
-        txt = md.get("text", "") or ""
+        src = md.get("source") or md.get("file") or md.get("id") or ""
+        txt = md.get("text") or ""
         ctx_blocks.append(f"[{i}] {src}\n{txt}")
     header = (
         "당신은 해운 시황 분석 보조원이다. 제공된 컨텍스트 범위에서만 한국어로 답하라. "
@@ -56,19 +69,21 @@ def build_prompt(question: str, matches: List[Dict[str, Any]]) -> str:
     return header + f"질문:\n{question}\n\n컨텍스트:\n" + "\n\n---\n\n".join(ctx_blocks)
 
 # ---------- Q&A endpoint ----------
-@app.post("/ask")
+@app.post("/api/ask")
 def ask(body: Q = Body(...)) -> JSONResponse:
-    """
-    Vercel 경로: POST https://<domain>/api/apk
-    """
     try:
+        client, index = get_services()
+
         # 1) Embed
-        qv = embed_one(body.query)
+        qv = embed_one(client, body.query)
 
         # 2) Vector search
-        # Pinecone v5: dict 응답에 'matches' 리스트 포함
         res = index.query(vector=qv, top_k=body.top_k, include_metadata=True)
-        matches: List[Dict[str, Any]] = res.get("matches", []) if isinstance(res, dict) else []
+        # pinecone SDK 버전에 따라 dict/object 모두 허용
+        if hasattr(res, "matches"):
+            matches = res.matches or []
+        else:
+            matches = res.get("matches", []) if isinstance(res, dict) else []
 
         if not matches:
             return JSONResponse({"answer": "관련 자료 없음", "sources": []})
@@ -98,6 +113,8 @@ def ask(body: Q = Body(...)) -> JSONResponse:
 
         return JSONResponse({"answer": answer, "sources": sources})
 
+    except HTTPException:
+        raise
     except Exception as e:
         tb = traceback.format_exc(limit=3)
         return JSONResponse(status_code=500, content={"error": str(e), "trace": tb})
