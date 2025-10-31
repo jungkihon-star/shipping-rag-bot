@@ -1,3 +1,5 @@
+# Cloud Shell에서 ask.py 파일 열기 (nano 사용)
+nano api/ask.py
 import os
 import traceback
 from typing import List, Dict, Any
