@@ -1,4 +1,13 @@
 # api/ask.py
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],   # 운영 시 도메인 화이트리스트로 교체 권장
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 import os
 import traceback
 from typing import List, Dict, Any
