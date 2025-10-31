@@ -1,4 +1,5 @@
-
+import os
+print(f"DEBUG: Starting RAG bot initialization. Environment Keys loaded: {os.environ.get('OPENAI_API_KEY', 'NOT_SET')[:5]}...")
 import os
 import traceback
 from typing import List, Dict, Any
